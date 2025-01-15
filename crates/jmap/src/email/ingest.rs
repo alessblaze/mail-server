@@ -110,16 +110,21 @@ impl EmailIngest for Server {
     #[allow(clippy::blocks_in_conditions)]
     async fn email_ingest(&self, mut params: IngestEmail<'_>) -> trc::Result<IngestedEmail> {
         // Check quota
+        let dbg_line = format!("{} {:?}", params.session_id, params.source);
         let start_time = Instant::now();
         let account_id = params.resource.account_id;
         let tenant_id = params.resource.tenant.map(|t| t.id);
         let mut raw_message_len = params.raw_message.len() as u64;
+        dbg!(&dbg_line);
         self.has_available_quota(&params.resource, raw_message_len)
             .await
             .caused_by(trc::location!())?;
+        dbg!(&dbg_line);
 
         // Parse message
+        dbg!(&dbg_line);
         let mut raw_message = Cow::from(params.raw_message);
+        dbg!(&dbg_line);
         let mut message = params.message.ok_or_else(|| {
             trc::EventType::MessageIngest(trc::MessageIngestEvent::Error)
                 .ctx(trc::Key::Code, 550)
@@ -130,9 +135,11 @@ impl EmailIngest for Server {
         let mut train_spam = None;
         let mut extra_headers = String::new();
         let mut extra_headers_parsed = Vec::new();
+        dbg!(&dbg_line);
         match params.source {
             IngestSource::Smtp { deliver_to } => {
                 // Add delivered to header
+                dbg!(&dbg_line);
                 if self.core.smtp.session.data.add_delivered_to {
                     extra_headers = format!("Delivered-To: {deliver_to}\r\n");
                     extra_headers_parsed.push(Header {
@@ -145,11 +152,13 @@ impl EmailIngest for Server {
                 }
 
                 // Spam classification and training
+                dbg!(&dbg_line);
                 if params.spam_classify
                     && self.core.spam.enabled
                     && params.mailbox_ids == [INBOX_ID]
                 {
                     // Set the spam filter result
+                    dbg!(&dbg_line);
                     is_spam = self
                         .core
                         .spam
@@ -168,13 +177,16 @@ impl EmailIngest for Server {
                         .filter(|config| config.account_classify && params.spam_train)
                     {
                         // Initialize spam filter
+                        dbg!(&dbg_line);
                         let ctx = self.spam_filter_init(SpamFilterInput::from_account_message(
                             &message,
                             account_id,
                             params.session_id,
                         ));
+                        dbg!(&dbg_line);
 
                         // Bayes classify
+                        dbg!(&dbg_line);
                         match self.bayes_classify(&ctx).await {
                             Ok(Some(score)) => {
                                 let result = if score > bayes_config.score_spam {
@@ -215,6 +227,7 @@ impl EmailIngest for Server {
                             }
                         }
                     }
+                    dbg!(&dbg_line);
 
                     if is_spam {
                         params.mailbox_ids[0] = JUNK_ID;
@@ -225,6 +238,7 @@ impl EmailIngest for Server {
             IngestSource::Jmap | IngestSource::Imap
                 if params.spam_train && self.core.spam.enabled =>
             {
+                dbg!(&dbg_line);
                 if params.keywords.contains(&Keyword::Junk) {
                     train_spam = Some(true);
                 } else if params.keywords.contains(&Keyword::NotJunk) {
@@ -241,6 +255,7 @@ impl EmailIngest for Server {
 
         // Obtain message references and thread name
         let mut message_id = String::new();
+        dbg!(&dbg_line);
         let thread_id = {
             let mut references = Vec::with_capacity(5);
             let mut subject = "";
@@ -276,6 +291,7 @@ impl EmailIngest for Server {
                     _ => (),
                 }
             }
+            dbg!(&dbg_line);
 
             // Check for duplicates
             if params.source.is_smtp()
@@ -306,6 +322,7 @@ impl EmailIngest for Server {
                     AccountId = account_id,
                     MessageId = message_id,
                 );
+                dbg!(&dbg_line);
 
                 return Ok(IngestedEmail {
                     id: Id::default(),
@@ -315,14 +332,18 @@ impl EmailIngest for Server {
                     size: 0,
                 });
             }
+            dbg!(&dbg_line);
 
             if !references.is_empty() {
+                dbg!(&dbg_line);
                 self.find_or_merge_thread(account_id, subject, &references)
                     .await?
             } else {
+                dbg!(&dbg_line);
                 None
             }
         };
+        dbg!(&dbg_line);
 
         // Add additional headers to message
         if !extra_headers.is_empty() {
@@ -372,6 +393,7 @@ impl EmailIngest for Server {
             extra_headers_parsed.append(&mut root_part.headers);
             root_part.headers = extra_headers_parsed;
         }
+        dbg!(&dbg_line);
 
         // Encrypt message
         let do_encrypt = match params.source {
@@ -381,7 +403,9 @@ impl EmailIngest for Server {
             IngestSource::Smtp { .. } => self.core.jmap.encrypt,
             IngestSource::Restore => false,
         };
+        dbg!(&dbg_line);
         if do_encrypt && !message.is_encrypted() {
+            dbg!(&dbg_line);
             if let Some(encrypt_params) = self
                 .get_property::<EncryptionParams>(
                     account_id,
@@ -392,8 +416,10 @@ impl EmailIngest for Server {
                 .await
                 .caused_by(trc::location!())?
             {
+                dbg!(&dbg_line);
                 match message.encrypt(&encrypt_params).await {
                     Ok(new_raw_message) => {
+                        dbg!(&dbg_line);
                         raw_message = Cow::from(new_raw_message);
                         raw_message_len = raw_message.len() as u64;
                         message = MessageParser::default()
@@ -424,6 +450,7 @@ impl EmailIngest for Server {
                         }
                     }
                     Err(EncryptMessageError::Error(err)) => {
+                        dbg!(&dbg_line);
                         trc::bail!(trc::StoreEvent::CryptoError
                             .into_err()
                             .caused_by(trc::location!())
@@ -433,30 +460,36 @@ impl EmailIngest for Server {
                 }
             }
         }
+        dbg!(&dbg_line);
 
         // Obtain a documentId and changeId
         let change_id = self
             .assign_change_id(account_id)
             .await
             .caused_by(trc::location!())?;
+        dbg!(&dbg_line);
 
         // Store blob
         let blob_id = self
             .put_blob(account_id, raw_message.as_ref(), false)
             .await
             .caused_by(trc::location!())?;
+        dbg!(&dbg_line);
 
         // Assign IMAP UIDs
         let mut mailbox_ids = Vec::with_capacity(params.mailbox_ids.len());
         let mut imap_uids = Vec::with_capacity(params.mailbox_ids.len());
         for mailbox_id in &params.mailbox_ids {
+            dbg!(&dbg_line);
             let uid = self
                 .assign_imap_uid(account_id, *mailbox_id)
                 .await
                 .caused_by(trc::location!())?;
+            dbg!(&dbg_line);
             mailbox_ids.push(UidMailbox::new(*mailbox_id, uid));
             imap_uids.push(uid);
         }
+        dbg!(&dbg_line);
 
         // Prepare batch
         let mut batch = BatchBuilder::new();
@@ -469,6 +502,7 @@ impl EmailIngest for Server {
         } else {
             batch.create_document().log(LogInsert());
         }
+        dbg!(&dbg_line);
 
         // Build write batch
         let mailbox_ids_event = mailbox_ids
@@ -503,6 +537,7 @@ impl EmailIngest for Server {
                 }),
                 vec![],
             );
+        dbg!(&dbg_line);
 
         // Request spam training
         if let Some(learn_spam) = train_spam {
@@ -515,6 +550,7 @@ impl EmailIngest for Server {
                 vec![],
             );
         }
+        dbg!(&dbg_line);
 
         // Insert and obtain ids
         let ids = self
@@ -524,6 +560,7 @@ impl EmailIngest for Server {
             .write(batch.build())
             .await
             .caused_by(trc::location!())?;
+        dbg!(&dbg_line);
         let thread_id = match thread_id {
             Some(thread_id) => thread_id,
             None => ids.first_document_id().caused_by(trc::location!())?,
@@ -532,7 +569,10 @@ impl EmailIngest for Server {
         let id = Id::from_parts(thread_id, document_id);
 
         // Request FTS index
+        dbg!(&dbg_line);
+
         self.notify_task_queue();
+        dbg!(&dbg_line);
 
         trc::event!(
             MessageIngest(match params.source {
@@ -555,6 +595,7 @@ impl EmailIngest for Server {
             Size = raw_message_len,
             Elapsed = start_time.elapsed(),
         );
+        dbg!(&dbg_line);
 
         Ok(IngestedEmail {
             id,

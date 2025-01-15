@@ -35,12 +35,17 @@ pub trait SendDsn: Sync + Send {
 impl SendDsn for Server {
     async fn send_dsn(&self, message: &mut Message) {
         // Send DSN events
+        dbg!(message.queue_id);
         self.log_dsn(message).await;
+        dbg!(message.queue_id);
 
         if !message.return_path.is_empty() {
             // Build DSN
+            dbg!(message.queue_id);
             if let Some(dsn) = message.build_dsn(self).await {
+                dbg!(message.queue_id);
                 let mut dsn_message = self.new_message("", "", "", message.span_id);
+                dbg!(message.queue_id);
                 dsn_message
                     .add_recipient_parts(
                         &message.return_path,
@@ -51,11 +56,14 @@ impl SendDsn for Server {
                     .await;
 
                 // Sign message
+                dbg!(message.queue_id);
                 let signature = self
                     .sign_message(message, &self.core.smtp.queue.dsn.sign, &dsn)
                     .await;
+                dbg!(message.queue_id);
 
                 // Queue DSN
+                dbg!(message.queue_id);
                 dsn_message
                     .queue(
                         signature.as_deref(),
@@ -65,10 +73,13 @@ impl SendDsn for Server {
                         MessageSource::Dsn,
                     )
                     .await;
+                dbg!(message.queue_id);
             }
         } else {
             // Handle double bounce
+            dbg!(message.queue_id);
             message.handle_double_bounce();
+            dbg!(message.queue_id);
         }
     }
 

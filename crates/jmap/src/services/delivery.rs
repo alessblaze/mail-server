@@ -14,11 +14,18 @@ use super::ingest::MailDelivery;
 pub fn spawn_delivery_manager(inner: Arc<Inner>, mut delivery_rx: mpsc::Receiver<DeliveryEvent>) {
     tokio::spawn(async move {
         while let Some(event) = delivery_rx.recv().await {
+            dbg!(&event);
             match event {
                 DeliveryEvent::Ingest { message, result_tx } => {
-                    result_tx
-                        .send(inner.build_server().deliver_message(message).await)
-                        .ok();
+                    let session_id = message.session_id;
+                    dbg!(session_id);
+                    let server = inner.build_server();
+                    dbg!(session_id);
+                    let result = server.deliver_message(message).await;
+                    dbg!(session_id);
+
+                    result_tx.send(result).ok();
+                    dbg!(session_id);
                 }
                 DeliveryEvent::Stop => break,
             }

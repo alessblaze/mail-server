@@ -201,7 +201,9 @@ impl Server {
 
         // Obtain current revision
         let principal_id = principal.id();
+        dbg!(principal_id);
         let revision = self.fetch_principal_revision(principal_id).await;
+        dbg!(principal_id);
 
         match self
             .inner
@@ -211,9 +213,12 @@ impl Server {
             .await
         {
             Ok(token) => {
+                dbg!(principal_id);
                 if revision == Some(token.revision) {
+                    dbg!(principal_id);
                     Ok(token)
                 } else {
+                    dbg!(principal_id);
                     let revision = revision.unwrap_or(u64::MAX);
                     let token: Arc<AccessToken> = match principal {
                         PrincipalOrId::Principal(principal) => {
@@ -225,28 +230,36 @@ impl Server {
                         }
                     }
                     .into();
+                    dbg!(principal_id);
 
                     self.inner
                         .cache
                         .access_tokens
                         .insert(token.primary_id(), token.clone());
+                    dbg!(principal_id);
 
                     Ok(token)
                 }
             }
             Err(guard) => {
+                dbg!(principal_id);
                 let revision = revision.unwrap_or(u64::MAX);
+                dbg!(principal_id);
                 let token: Arc<AccessToken> = match principal {
                     PrincipalOrId::Principal(principal) => {
+                        dbg!(principal_id);
                         self.build_access_token_from_principal(principal, revision)
                             .await?
                     }
                     PrincipalOrId::Id(account_id) => {
+                        dbg!(principal_id);
                         self.build_access_token(account_id, revision).await?
                     }
                 }
                 .into();
+                dbg!(principal_id);
                 let _ = guard.insert(token.clone());
+                dbg!(principal_id);
                 Ok(token)
             }
         }

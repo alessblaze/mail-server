@@ -35,6 +35,13 @@ pub trait MailDelivery: Sync + Send {
 impl MailDelivery for Server {
     async fn deliver_message(&self, message: IngestMessage) -> Vec<DeliveryResult> {
         // Read message
+        let dbg_line = format!(
+            "{} {} {:?}",
+            message.session_id, message.sender_address, message.recipients
+        );
+
+        dbg!(&dbg_line);
+
         let raw_message = match self
             .core
             .storage
@@ -42,8 +49,13 @@ impl MailDelivery for Server {
             .get_blob(message.message_blob.as_slice(), 0..usize::MAX)
             .await
         {
-            Ok(Some(raw_message)) => raw_message,
+            Ok(Some(raw_message)) => {
+                dbg!(&dbg_line);
+
+                raw_message
+            }
             Ok(None) => {
+                dbg!(&dbg_line);
                 trc::event!(
                     MessageIngest(trc::MessageIngestEvent::Error),
                     Reason = "Blob not found.",
@@ -58,6 +70,7 @@ impl MailDelivery for Server {
                     .collect::<Vec<_>>();
             }
             Err(err) => {
+                dbg!(&dbg_line);
                 trc::error!(err
                     .details("Failed to fetch message blob.")
                     .span_id(message.session_id)
@@ -70,18 +83,26 @@ impl MailDelivery for Server {
                     .collect::<Vec<_>>();
             }
         };
+        dbg!(&dbg_line);
 
         // Obtain the UIDs for each recipient
         let mut uids: AHashMap<u32, usize> = AHashMap::with_capacity(message.recipients.len());
         let mut results = Vec::with_capacity(message.recipients.len());
+        dbg!(&dbg_line);
         for rcpt in message.recipients {
+            dbg!(&dbg_line);
             let uid = match self
                 .email_to_id(&self.core.storage.directory, &rcpt, message.session_id)
                 .await
             {
-                Ok(Some(uid)) => uid,
+                Ok(Some(uid)) => {
+                    dbg!(&dbg_line);
+
+                    uid
+                }
                 Ok(None) => {
                     // Something went wrong
+                    dbg!(&dbg_line);
                     results.push(DeliveryResult::PermanentFailure {
                         code: [5, 5, 0],
                         reason: "Mailbox not found.".into(),
@@ -89,6 +110,7 @@ impl MailDelivery for Server {
                     continue;
                 }
                 Err(err) => {
+                    dbg!(&dbg_line);
                     trc::error!(err
                         .details("Failed to lookup recipient.")
                         .ctx(trc::Key::To, rcpt)
@@ -100,59 +122,83 @@ impl MailDelivery for Server {
                     continue;
                 }
             };
+            dbg!(&dbg_line);
             if let Some(result) = uids.get(&uid).and_then(|pos| results.get(*pos)) {
                 results.push(result.clone());
+                dbg!(&dbg_line);
                 continue;
             }
 
             // Obtain access token
+            dbg!(&dbg_line);
             let result = match self.get_access_token(uid).await.and_then(|token| {
+                dbg!(&dbg_line);
                 token
                     .assert_has_permission(Permission::EmailReceive)
                     .map(|_| token)
             }) {
                 Ok(access_token) => {
                     // Check if there is an active sieve script
+                    dbg!(&dbg_line);
                     match self.sieve_script_get_active(uid).await {
                         Ok(Some(active_script)) => {
-                            self.sieve_script_ingest(
-                                &access_token,
-                                &raw_message,
-                                &message.sender_address,
-                                &rcpt,
-                                message.session_id,
-                                active_script,
-                            )
-                            .await
+                            dbg!(&dbg_line);
+                            let r = self
+                                .sieve_script_ingest(
+                                    &access_token,
+                                    &raw_message,
+                                    &message.sender_address,
+                                    &rcpt,
+                                    message.session_id,
+                                    active_script,
+                                )
+                                .await;
+                            dbg!(&dbg_line);
+
+                            r
                         }
                         Ok(None) => {
                             // Ingest message
-                            self.email_ingest(IngestEmail {
-                                raw_message: &raw_message,
-                                message: MessageParser::new().parse(&raw_message),
-                                resource: access_token.as_resource_token(),
-                                mailbox_ids: vec![INBOX_ID],
-                                keywords: vec![],
-                                received_at: None,
-                                source: IngestSource::Smtp { deliver_to: &rcpt },
-                                spam_classify: access_token
-                                    .has_permission(Permission::SpamFilterClassify),
-                                spam_train: self.email_bayes_can_train(&access_token),
-                                session_id: message.session_id,
-                            })
-                            .await
+                            dbg!(&dbg_line);
+                            let r = self
+                                .email_ingest(IngestEmail {
+                                    raw_message: &raw_message,
+                                    message: MessageParser::new().parse(&raw_message),
+                                    resource: access_token.as_resource_token(),
+                                    mailbox_ids: vec![INBOX_ID],
+                                    keywords: vec![],
+                                    received_at: None,
+                                    source: IngestSource::Smtp { deliver_to: &rcpt },
+                                    spam_classify: access_token
+                                        .has_permission(Permission::SpamFilterClassify),
+                                    spam_train: self.email_bayes_can_train(&access_token),
+                                    session_id: message.session_id,
+                                })
+                                .await;
+                            dbg!(&dbg_line);
+                            r
                         }
-                        Err(err) => Err(err),
+                        Err(err) => {
+                            dbg!(&dbg_line);
+
+                            Err(err)
+                        }
                     }
                 }
 
-                Err(err) => Err(err),
+                Err(err) => {
+                    dbg!(&dbg_line);
+
+                    Err(err)
+                }
             };
 
             let result = match result {
                 Ok(ingested_message) => {
                     // Notify state change
+                    dbg!(&dbg_line);
                     if ingested_message.change_id != u64::MAX {
+                        dbg!(&dbg_line);
                         self.broadcast_state_change(
                             StateChange::new(uid)
                                 .with_change(DataType::EmailDelivery, ingested_message.change_id)
@@ -161,11 +207,13 @@ impl MailDelivery for Server {
                                 .with_change(DataType::Thread, ingested_message.change_id),
                         )
                         .await;
+                        dbg!(&dbg_line);
                     }
 
                     DeliveryResult::Success
                 }
                 Err(err) => {
+                    dbg!(&dbg_line);
                     let result = match err.as_ref() {
                         trc::EventType::Limit(trc::LimitEvent::Quota) => {
                             DeliveryResult::TemporaryFailure {
@@ -203,6 +251,7 @@ impl MailDelivery for Server {
                             reason: "Transient server failure.".into(),
                         },
                     };
+                    dbg!(&dbg_line);
 
                     trc::error!(err
                         .ctx(trc::Key::To, rcpt.to_string())
@@ -214,9 +263,12 @@ impl MailDelivery for Server {
 
             // Cache response for UID to avoid duplicate deliveries
             uids.insert(uid, results.len());
+            dbg!(&dbg_line);
 
             results.push(result);
+            dbg!(&dbg_line);
         }
+        dbg!(&dbg_line);
 
         results
     }

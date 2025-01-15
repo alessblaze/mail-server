@@ -137,6 +137,7 @@ impl Queue {
                         if last_backpressure_warning.elapsed() >= BACK_PRESSURE_WARN_INTERVAL {
                             let queue_events = server.next_event().await;
                             last_backpressure_warning = Instant::now();
+                            dbg!(&self.on_hold);
                             trc::event!(
                                 Queue(trc::QueueEvent::BackPressure),
                                 Reason =
@@ -180,6 +181,7 @@ impl Queue {
                                     >= BACK_PRESSURE_WARN_INTERVAL
                                 {
                                     last_backpressure_warning = Instant::now();
+                                    dbg!(&self.on_hold);
                                     trc::event!(
                                         Queue(trc::QueueEvent::BackPressure),
                                         Reason = "Queue outbound processing capacity for this node exceeded.",
@@ -232,8 +234,11 @@ impl Queue {
 
                             // Deliver message
                             in_flight_count += 1;
+                            dbg!(queue_event.queue_id);
                             self.on_hold.insert(queue_event.queue_id, OnHold::InFlight);
+                            dbg!(queue_event.queue_id);
                             DeliveryAttempt::new(*queue_event).try_deliver(server.clone());
+                            dbg!(queue_event.queue_id);
                         } else {
                             let due_in = queue_event.due - now;
                             if due_in < next_wake_up {

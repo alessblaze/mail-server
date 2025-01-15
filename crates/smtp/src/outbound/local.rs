@@ -19,6 +19,9 @@ impl Message {
         recipients: impl Iterator<Item = &mut Recipient>,
         delivery_tx: &mpsc::Sender<DeliveryEvent>,
     ) -> Status<(), Error> {
+        let queue_id = self.queue_id;
+        let span_id = self.span_id;
+        dbg!(format!("{queue_id} {span_id}"));
         // Prepare recipients list
         let mut total_rcpt = 0;
         let mut total_completed = 0;
@@ -36,9 +39,11 @@ impl Message {
             recipient_addresses.push(rcpt.address_lcase.clone());
             pending_recipients.push(rcpt);
         }
+        dbg!(format!("{queue_id} {span_id}"));
 
         // Create oneshot channel
         let (result_tx, result_rx) = oneshot::channel();
+        dbg!(format!("{queue_id} {span_id}"));
 
         // Deliver message to JMAP server
         let delivery_result = match delivery_tx
@@ -55,10 +60,17 @@ impl Message {
             .await
         {
             Ok(_) => {
+                dbg!(format!("{queue_id} {span_id}"));
                 // Wait for result
                 match result_rx.await {
-                    Ok(delivery_result) => delivery_result,
+                    Ok(delivery_result) => {
+                        dbg!(format!("{queue_id} {span_id}"));
+
+                        delivery_result
+                    }
                     Err(_) => {
+                        dbg!(format!("{queue_id} {span_id}"));
+
                         trc::event!(
                             Server(ServerEvent::ThreadError),
                             CausedBy = trc::location!(),
@@ -70,6 +82,8 @@ impl Message {
                 }
             }
             Err(_) => {
+                dbg!(format!("{queue_id} {span_id}"));
+
                 trc::event!(
                     Server(ServerEvent::ThreadError),
                     CausedBy = trc::location!(),
@@ -81,6 +95,7 @@ impl Message {
         };
 
         // Process delivery results
+        dbg!(format!("{queue_id} {span_id}"));
         for (rcpt, result) in pending_recipients.into_iter().zip(delivery_result) {
             rcpt.flags |= RCPT_STATUS_CHANGED;
             match result {
@@ -94,6 +109,7 @@ impl Message {
                         },
                     });
                     total_completed += 1;
+                    dbg!(format!("{queue_id} {span_id}"));
                 }
                 DeliveryResult::TemporaryFailure { reason } => {
                     rcpt.status = Status::TemporaryFailure(HostResponse {
@@ -107,6 +123,7 @@ impl Message {
                             message: reason.into_owned(),
                         },
                     });
+                    dbg!(format!("{queue_id} {span_id}"));
                 }
                 DeliveryResult::PermanentFailure { code, reason } => {
                     total_completed += 1;
@@ -121,13 +138,16 @@ impl Message {
                             message: reason.into_owned(),
                         },
                     });
+                    dbg!(format!("{queue_id} {span_id}"));
                 }
             }
         }
 
         if total_completed == total_rcpt {
+            dbg!(format!("{queue_id} {span_id}"));
             Status::Completed(())
         } else {
+            dbg!(format!("{queue_id} {span_id}"));
             Status::Scheduled
         }
     }
