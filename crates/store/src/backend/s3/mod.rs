@@ -4,7 +4,12 @@
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use std::{fmt::Display, io::Write, ops::Range, time::Duration};
+use std::{
+    fmt::Display,
+    io::Write,
+    ops::Range,
+    time::{Duration, Instant},
+};
 
 use s3::{creds::Credentials, Bucket, Region};
 use utils::{
@@ -117,29 +122,63 @@ impl S3Store {
 
     pub(crate) async fn put_blob(&self, key: &[u8], data: &[u8]) -> trc::Result<()> {
         let mut retries_left = self.max_retries;
-
+        let now = Instant::now();
         loop {
-            let response = self
-                .bucket
-                .put_object(self.build_key(key), data)
-                .await
-                .map_err(into_error)?;
+            dbg!(key, data.len(), retries_left, now.elapsed().as_secs());
+
+            let response = match tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                self.bucket.put_object(self.build_key(key), data),
+            )
+            .await
+            {
+                Ok(result) => {
+                    dbg!(key, data.len(), retries_left, now.elapsed().as_secs());
+                    result.map_err(into_error)?
+                }
+                Err(_) => {
+                    dbg!(
+                        "timeout",
+                        key,
+                        data.len(),
+                        retries_left,
+                        now.elapsed().as_secs()
+                    );
+
+                    return Err(trc::StoreEvent::S3Error.reason("S3 timeout"));
+                }
+            };
+
+            dbg!(key, data.len(), retries_left, now.elapsed().as_secs());
 
             match response.status_code() {
-                200..=299 => return Ok(()),
+                200..=299 => {
+                    dbg!(key, data.len(), retries_left, now.elapsed().as_secs());
+
+                    return Ok(());
+                }
                 500..=599 if retries_left > 0 => {
                     // wait backoff
+                    dbg!(
+                        key,
+                        data.len(),
+                        self.max_retries,
+                        retries_left,
+                        now.elapsed().as_secs()
+                    );
                     tokio::time::sleep(Duration::from_secs(
                         1 << (self.max_retries - retries_left).max(16),
                     ))
                     .await;
+                    dbg!(key, data.len(), retries_left, now.elapsed().as_secs());
 
                     retries_left -= 1;
                 }
                 code => {
+                    dbg!(key, data.len(), retries_left, now.elapsed().as_secs());
                     return Err(trc::StoreEvent::S3Error
                         .reason(String::from_utf8_lossy(response.as_slice()))
-                        .ctx(trc::Key::Code, code))
+                        .ctx(trc::Key::Code, code));
                 }
             }
         }

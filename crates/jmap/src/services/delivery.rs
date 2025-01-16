@@ -24,11 +24,14 @@ pub fn spawn_delivery_manager(inner: Arc<Inner>, mut delivery_rx: mpsc::Receiver
                     let result = server.deliver_message(message).await;
                     dbg!(session_id);
 
-                    result_tx.send(result).ok();
+                    if let Err(err) = result_tx.send(result) {
+                        dbg!(err);
+                    }
                     dbg!(session_id);
                 }
                 DeliveryEvent::Stop => break,
             }
         }
+        dbg!("Task closed");
     });
 }

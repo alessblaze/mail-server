@@ -90,6 +90,7 @@ impl BlobStore {
     }
 
     pub async fn put_blob(&self, key: &[u8], data: &[u8]) -> trc::Result<()> {
+        dbg!(key, data.len());
         let data: Cow<[u8]> = match self.compression {
             CompressionAlgo::None => data.into(),
             CompressionAlgo::Lz4 => {
@@ -98,6 +99,7 @@ impl BlobStore {
                 compressed.into()
             }
         };
+        dbg!(key, data.len());
 
         let start_time = Instant::now();
         let result = match &self.backend {
@@ -125,6 +127,7 @@ impl BlobStore {
             BlobBackend::Sharded(store) => store.put_blob(key, data.as_ref()).await,
         }
         .caused_by(trc::location!());
+        dbg!(key, data.len());
 
         trc::event!(
             Store(StoreEvent::BlobWrite),

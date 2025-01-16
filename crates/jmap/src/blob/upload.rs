@@ -266,6 +266,7 @@ impl BlobUpload for Server {
     async fn put_blob(&self, account_id: u32, data: &[u8], set_quota: bool) -> trc::Result<BlobId> {
         // First reserve the hash
         let hash = BlobHash::from(data);
+        dbg!(account_id, &hash, data.len());
         let mut batch = BatchBuilder::new();
         let until = now() + self.core.jmap.upload_tmp_ttl;
 
@@ -276,7 +277,9 @@ impl BlobUpload for Server {
             },
             (if set_quota { data.len() as u32 } else { 0u32 }).serialize(),
         );
+        dbg!(account_id, &hash, data.len());
         self.write_batch(batch).await?;
+        dbg!(account_id, &hash, data.len());
 
         if !self
             .core
@@ -286,6 +289,7 @@ impl BlobUpload for Server {
             .await
             .caused_by(trc::location!())?
         {
+            dbg!(account_id, &hash, data.len());
             // Upload blob to store
             self.core
                 .storage
@@ -293,12 +297,15 @@ impl BlobUpload for Server {
                 .put_blob(hash.as_ref(), data)
                 .await
                 .caused_by(trc::location!())?;
+            dbg!(account_id, &hash, data.len());
 
             // Commit blob
             let mut batch = BatchBuilder::new();
             batch.set(BlobOp::Commit { hash: hash.clone() }, Vec::new());
+            dbg!(account_id, &hash, data.len());
             self.write_batch(batch).await?;
         }
+        dbg!(account_id, &hash, data.len());
 
         Ok(BlobId {
             hash,
