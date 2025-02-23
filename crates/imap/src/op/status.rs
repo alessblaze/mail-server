@@ -11,24 +11,21 @@ use crate::{
     op::ImapContext,
     spawn_op,
 };
-use common::{listener::SessionStream, Mailbox};
+use common::{Mailbox, listener::SessionStream};
 use directory::Permission;
 use imap_proto::{
+    Command, ResponseCode, StatusResponse,
     parser::PushUnique,
     protocol::status::{Status, StatusItem, StatusItemType},
     receiver::Request,
-    Command, ResponseCode, StatusResponse,
 };
-use jmap_proto::{
-    object::Object,
-    types::{collection::Collection, id::Id, keyword::Keyword, property::Property, value::Value},
-};
-use store::{
-    roaring::RoaringBitmap,
-    write::{key::DeserializeBigEndian, ValueClass},
-    IndexKeyPrefix, IterateParams, ValueKey,
-};
+use jmap_proto::types::{collection::Collection, id::Id, keyword::Keyword, property::Property};
 use store::{Deserialize, U32_LEN};
+use store::{
+    IndexKeyPrefix, IterateParams, ValueKey,
+    roaring::RoaringBitmap,
+    write::{ValueClass, key::DeserializeBigEndian},
+};
 use trc::AddContext;
 
 use super::ToModSeq;
@@ -267,25 +264,26 @@ impl<T: SessionStream> SessionData<T> {
                             .caused_by(trc::location!())?
                             + 1) as u64
                     }
-                    Status::UidValidity => self
-                        .server
-                        .get_property::<Object<Value>>(
-                            mailbox.account_id,
-                            Collection::Mailbox,
-                            mailbox.mailbox_id,
-                            &Property::Value,
-                        )
-                        .await?
-                        .and_then(|obj| obj.get(&Property::Cid).as_uint())
-                        .ok_or_else(|| {
-                            trc::StoreEvent::UnexpectedError
-                                .into_err()
-                                .details("Mailbox unavailable")
-                                .ctx(trc::Key::Reason, "Failed to obtain uid validity")
-                                .caused_by(trc::location!())
-                                .account_id(mailbox.account_id)
-                                .document_id(mailbox.mailbox_id)
-                        })?,
+                    Status::UidValidity => {
+                        self.server
+                            .get_property::<email::mailbox::Mailbox>(
+                                mailbox.account_id,
+                                Collection::Mailbox,
+                                mailbox.mailbox_id,
+                                &Property::Value,
+                            )
+                            .await?
+                            .ok_or_else(|| {
+                                trc::StoreEvent::UnexpectedError
+                                    .into_err()
+                                    .details("Mailbox unavailable")
+                                    .ctx(trc::Key::Reason, "Failed to obtain uid validity")
+                                    .caused_by(trc::location!())
+                                    .account_id(mailbox.account_id)
+                                    .document_id(mailbox.mailbox_id)
+                            })?
+                            .uid_validity as u64
+                    }
                     Status::Unseen => {
                         if let (Some(message_ids), Some(mailbox_message_ids)) =
                             (&message_ids, &mailbox_message_ids)

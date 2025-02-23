@@ -7,13 +7,10 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use ahash::AHashMap;
-use common::{listener::SessionStream, NextMailboxState};
+use common::{NextMailboxState, listener::SessionStream};
 use email::mailbox::UidMailbox;
-use imap_proto::protocol::{expunge, select::Exists, Sequence};
-use jmap_proto::{
-    object::Object,
-    types::{collection::Collection, property::Property, value::Value},
-};
+use imap_proto::protocol::{Sequence, expunge, select::Exists};
+use jmap_proto::types::{collection::Collection, property::Property};
 use store::write::assert::HashedValue;
 use trc::AddContext;
 
@@ -227,14 +224,13 @@ impl<T: SessionStream> SessionData<T> {
 
     pub async fn get_uid_validity(&self, mailbox: &MailboxId) -> trc::Result<u32> {
         self.server
-            .get_property::<Object<Value>>(
+            .get_property::<email::mailbox::Mailbox>(
                 mailbox.account_id,
                 Collection::Mailbox,
                 mailbox.mailbox_id,
                 &Property::Value,
             )
             .await?
-            .and_then(|obj| obj.get(&Property::Cid).as_uint())
             .ok_or_else(|| {
                 trc::ImapEvent::Error
                     .caused_by(trc::location!())
@@ -243,7 +239,7 @@ impl<T: SessionStream> SessionData<T> {
                     .collection(Collection::Mailbox)
                     .document_id(mailbox.mailbox_id)
             })
-            .map(|v| v as u32)
+            .map(|m| m.uid_validity)
     }
 }
 
