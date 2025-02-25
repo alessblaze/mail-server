@@ -13,6 +13,7 @@ use crate::{
 };
 use common::{Mailbox, listener::SessionStream};
 use directory::Permission;
+use email::mailbox::ArchivedMailbox;
 use imap_proto::{
     Command, ResponseCode, StatusResponse,
     parser::PushUnique,
@@ -20,7 +21,7 @@ use imap_proto::{
     receiver::Request,
 };
 use jmap_proto::types::{collection::Collection, id::Id, keyword::Keyword, property::Property};
-use store::{Deserialize, U32_LEN};
+use store::{Deserialize, U32_LEN, write::ArchivedValue};
 use store::{
     IndexKeyPrefix, IterateParams, ValueKey,
     roaring::RoaringBitmap,
@@ -264,9 +265,9 @@ impl<T: SessionStream> SessionData<T> {
                             .caused_by(trc::location!())?
                             + 1) as u64
                     }
-                    Status::UidValidity => {
+                    Status::UidValidity => u32::from(
                         self.server
-                            .get_property::<email::mailbox::Mailbox>(
+                            .get_property::<ArchivedValue<ArchivedMailbox>>(
                                 mailbox.account_id,
                                 Collection::Mailbox,
                                 mailbox.mailbox_id,
@@ -282,8 +283,10 @@ impl<T: SessionStream> SessionData<T> {
                                     .account_id(mailbox.account_id)
                                     .document_id(mailbox.mailbox_id)
                             })?
-                            .uid_validity as u64
-                    }
+                            .unarchive()
+                            .caused_by(trc::location!())?
+                            .uid_validity,
+                    ) as u64,
                     Status::Unseen => {
                         if let (Some(message_ids), Some(mailbox_message_ids)) =
                             (&message_ids, &mailbox_message_ids)

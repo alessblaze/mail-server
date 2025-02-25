@@ -6,32 +6,32 @@
 
 use std::{sync::Arc, time::Duration};
 
-use directory::{backend::internal::manage::ManageDirectory, Directory, QueryBy, Type};
+use directory::{Directory, QueryBy, Type, backend::internal::manage::ManageDirectory};
 use jmap_proto::types::{
     blob::BlobId, collection::Collection, property::Property, state::StateChange,
 };
 use sieve::Sieve;
 use store::{
+    BitmapKey, BlobClass, BlobStore, Deserialize, FtsStore, InMemoryStore, IndexKey, IterateParams,
+    LogKey, SerializeInfallible, Store, U32_LEN, ValueKey,
     dispatch::DocumentSet,
     roaring::RoaringBitmap,
     write::{
-        key::DeserializeBigEndian, log::ChangeLogBuilder, now, BatchBuilder, BitmapClass, BlobOp,
-        DirectoryClass, QueueClass, TagValue, ValueClass,
+        BatchBuilder, BitmapClass, BlobOp, DirectoryClass, QueueClass, TagValue, ValueClass,
+        key::DeserializeBigEndian, log::ChangeLogBuilder, now,
     },
-    BitmapKey, BlobClass, BlobStore, Deserialize, FtsStore, InMemoryStore, IndexKey, IterateParams,
-    LogKey, Serialize, Store, ValueKey, U32_LEN,
 };
 use trc::AddContext;
 use utils::BlobHash;
 
 use crate::{
+    ImapId, Inner, MailboxState, Server,
     auth::{AccessToken, ResourceToken, TenantInfo},
     config::smtp::{
         auth::{ArcSealer, DkimSigner},
         queue::RelayHost,
     },
     ipc::StateEvent,
-    ImapId, Inner, MailboxState, Server,
 };
 
 impl Server {
@@ -523,7 +523,10 @@ impl Server {
         let state = changes.change_id;
 
         let mut builder = BatchBuilder::new();
-        builder.with_account_id(account_id).custom(changes);
+        builder
+            .with_account_id(account_id)
+            .custom(changes)
+            .caused_by(trc::location!())?;
         self.core
             .storage
             .data
